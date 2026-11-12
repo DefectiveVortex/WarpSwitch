@@ -6,14 +6,19 @@ using Timer = System.Windows.Forms.Timer;
 
 namespace WarpSwitch;
 
-/// Live view of the recent usque output and app events, for troubleshooting.
+/// Live view of the recent usque output and app events, for troubleshooting. New lines are appended; it only
+/// follows them to the bottom while you're at the bottom, so you can scroll back and select text meanwhile.
 sealed class LogForm : Form
 {
+    const int EM_GETFIRSTVISIBLELINE = 0xCE, EM_LINESCROLL = 0xB6, WM_SETREDRAW = 0x0B;
+    const int MaxLinesShown = 3000;
+
     readonly LogBuffer log;
     readonly TextBox box;
     readonly Timer timer = new() { Interval = 1000 };
     readonly Theme theme;
-    string shown = "";
+    readonly Font mono = new("Consolas", 9f);
+    long seen;
 
     public LogForm(LogBuffer log, Theme theme, Icon icon)
     {
@@ -31,16 +36,16 @@ sealed class LogForm : Form
         box = new TextBox
         {
             Multiline = true, ReadOnly = true, WordWrap = false, ScrollBars = ScrollBars.Both,
-            Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, Font = new Font("Consolas", 9f),
-            BackColor = theme.Card, ForeColor = theme.Text,
+            Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, Font = mono,
+            BackColor = theme.Card, ForeColor = theme.Text, MaxLength = 0,
         };
         var bar = new FlowLayoutPanel
         {
             Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, Height = (int)(44 * s),
             Padding = new Padding((int)(8 * s)), BackColor = theme.Bg,
         };
-        bar.Controls.Add(MakeButton("Copy all", (o, e) => Clipboard.SetText(box.TextLength > 0 ? box.Text : " ")));
-        bar.Controls.Add(MakeButton("Open app folder", (o, e) => Process.Start("explorer.exe", Setup.Dir)));
+        bar.Controls.Add(MakeButton("Copy all", (o, e) => { try { Clipboard.SetText(box.TextLength > 0 ? box.Text : " "); } catch { } }));
+        bar.Controls.Add(MakeButton("Open app folder", (o, e) => { try { Process.Start("explorer.exe", "\"" + Setup.Dir + "\""); } catch { } }));
         Controls.Add(box);
         Controls.Add(bar);
 
@@ -61,14 +66,46 @@ sealed class LogForm : Form
         return b;
     }
 
+    int FirstVisibleLine() => (int)Native.SendMessage(box.Handle, EM_GETFIRSTVISIBLELINE, IntPtr.Zero, IntPtr.Zero);
+
+    bool AtBottom()
+    {
+        int visible = Math.Max(1, box.ClientSize.Height / Math.Max(1, box.Font.Height));
+        int total = box.GetLineFromCharIndex(box.TextLength) + 1;
+        return FirstVisibleLine() + visible >= total - 1;
+    }
+
     void Pull()
     {
-        string text = log.Text();
-        if (text == shown) return;
-        shown = text;
-        box.Text = text;
-        box.SelectionStart = box.TextLength;
-        box.ScrollToCaret();
+        var lines = log.Since(seen, out seen, out bool reset);
+        if (lines.Length == 0 && !reset) return;
+        bool follow = box.SelectionLength == 0 && AtBottom();
+        if (reset || box.GetLineFromCharIndex(box.TextLength) > MaxLinesShown)
+        {
+            box.Text = string.Join(Environment.NewLine, lines);
+            if (follow) { box.SelectionStart = box.TextLength; box.ScrollToCaret(); }
+            return;
+        }
+        string text = (box.TextLength > 0 ? Environment.NewLine : "") + string.Join(Environment.NewLine, lines);
+        if (follow)
+        {
+            box.AppendText(text);
+            return;
+        }
+        // Keep the reader's place and selection while lines arrive underneath.
+        int first = FirstVisibleLine(), selStart = box.SelectionStart, selLen = box.SelectionLength;
+        Native.SendMessage(box.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
+        try
+        {
+            box.AppendText(text);
+            box.Select(selStart, selLen);
+            Native.SendMessage(box.Handle, EM_LINESCROLL, IntPtr.Zero, (IntPtr)(first - FirstVisibleLine()));
+        }
+        finally
+        {
+            Native.SendMessage(box.Handle, WM_SETREDRAW, (IntPtr)1, IntPtr.Zero);
+            box.Invalidate();
+        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -80,6 +117,7 @@ sealed class LogForm : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         timer.Dispose();
+        mono.Dispose();
         base.OnFormClosed(e);
     }
 }

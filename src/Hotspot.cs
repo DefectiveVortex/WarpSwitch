@@ -43,6 +43,9 @@ static class WinRt
 /// registry edits (an earlier script wiped the hotspot's saved settings that way).
 sealed class Hotspot
 {
+    const int ErrorShownSeconds = 20;
+
+    readonly object gate = new();
     public bool Available { get; private set; }
     public bool On { get; private set; }
     public bool Switching { get; private set; }   // Windows reports the hotspot mid-transition
@@ -52,8 +55,11 @@ sealed class Hotspot
     public string Ssid { get; private set; }
     public string Passphrase { get; private set; }
     public string Error { get; private set; }
+    /// Why the hotspot can't be used right now (only meaningful while !Available).
+    public string Problem { get; private set; }
     public Action<string> Log = _ => { };
     public event Action Changed;
+    DateTime errorAt;
 
     static NetworkOperatorTetheringManager Manager(ConnectionProfile p) =>
         p == null ? null : NetworkOperatorTetheringManager.CreateFromConnectionProfile(p);
@@ -64,31 +70,36 @@ sealed class Hotspot
         return NetworkInformation.GetConnectionProfiles().FirstOrDefault(p => p.NetworkAdapter != null && p.NetworkAdapter.NetworkAdapterId == g);
     }
 
-    /// Cheap poll of the real state. <paramref name="tunId"/> is the WARP adapter id while connected.
+    /// Poll of the real state (runs off the UI thread). <paramref name="tunId"/> is the WARP adapter id while connected.
     public void Refresh(string tunId)
     {
-        try
+        lock (gate)
         {
-            var m = Manager(NetworkInformation.GetInternetConnectionProfile()) ?? Manager(ProfileOf(tunId));
-            Available = m != null;
-            var state = m?.TetheringOperationalState ?? TetheringOperationalState.Unknown;
-            On = state == TetheringOperationalState.On;
-            Switching = state == TetheringOperationalState.InTransition;
-            Clients = On ? (int)m.ClientCount : 0;
-            ViaWarp = On && tunId != null && Net.Forwarding(tunId);
-            if (m != null && Ssid == null) ReadConfig(m);
-        }
-        catch (Exception ex)
-        {
-            Available = false;
-            On = false;
-            Problem = Describe(ex);
+            bool wasOn = On;
+            try
+            {
+                var m = Manager(NetworkInformation.GetInternetConnectionProfile()) ?? Manager(ProfileOf(tunId));
+                Available = m != null;
+                var state = m?.TetheringOperationalState ?? TetheringOperationalState.Unknown;
+                On = state == TetheringOperationalState.On;
+                Switching = state == TetheringOperationalState.InTransition;
+                Clients = On ? (int)m.ClientCount : 0;
+                ViaWarp = On && tunId != null && Net.Forwarding(tunId);
+                // Read every time: the name or password may have been changed in Windows Settings meanwhile.
+                if (m != null) ReadConfig(m);
+                Problem = null;
+            }
+            catch (Exception ex)
+            {
+                Available = false;
+                On = false;
+                Problem = Describe(ex);
+            }
+            // An error is about the last attempt; once things move on (or after a while) it no longer applies.
+            if (Error != null && (On != wasOn || (DateTime.UtcNow - errorAt).TotalSeconds > ErrorShownSeconds)) Error = null;
         }
         Changed?.Invoke();
     }
-
-    /// Why the hotspot can't be used right now (only meaningful while !Available).
-    public string Problem { get; private set; }
 
     void ReadConfig(NetworkOperatorTetheringManager m)
     {
@@ -105,9 +116,12 @@ sealed class Hotspot
     /// otherwise the normal internet connection. Turning on while already on re-points it.
     public async Task SetAsync(bool on, string tunId)
     {
-        if (Busy) return;
-        Busy = true;
-        Error = null;
+        lock (gate)
+        {
+            if (Busy) return;
+            Busy = true;
+            Error = null;
+        }
         Changed?.Invoke();
         try
         {
@@ -136,12 +150,16 @@ sealed class Hotspot
         }
         catch (Exception ex)
         {
-            Error = Describe(ex);
+            lock (gate)
+            {
+                Error = Describe(ex);
+                errorAt = DateTime.UtcNow;
+            }
             Log("· hotspot error: " + Error);
         }
         finally
         {
-            Busy = false;
+            lock (gate) Busy = false;
             Refresh(tunId);
         }
     }
@@ -194,4 +212,22 @@ sealed class Hotspot
         COMException c => "Hotspot unavailable (0x" + c.HResult.ToString("X8") + ").",
         _ => ex.GetBaseException().Message,
     };
+
+    /// Made-up state for screenshots and UI tests.
+    internal void Preview(bool on, bool viaWarp, int clients, string ssid, string passphrase)
+    {
+        Available = true;
+        On = on;
+        ViaWarp = viaWarp;
+        Clients = clients;
+        Ssid = ssid;
+        Passphrase = passphrase;
+    }
+
+    /// The standard "WIFI:" payload phone cameras understand, for the join-by-QR-code window.
+    public static string JoinCode(string ssid, string passphrase)
+    {
+        static string Esc(string s) => System.Text.RegularExpressions.Regex.Replace(s ?? "", @"([\\;,:""])", @"\$1");
+        return "WIFI:T:WPA;S:" + Esc(ssid) + ";P:" + Esc(passphrase) + ";;";
+    }
 }

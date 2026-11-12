@@ -25,15 +25,17 @@ sealed class WarpPath
     public static WarpPath Parse(string key)
     {
         var f = (key ?? "").Split('|');
-        if (f.Length != 4 || !IPAddress.TryParse(f[1], out _) || !int.TryParse(f[2], out int port)) return null;
+        if (f.Length != 4 || !IPAddress.TryParse(f[1], out _) || !int.TryParse(f[2], out int port) || port is < 1 or > 65535) return null;
+        if (f[0] != "quic" && f[0] != "tcp") return null;
+        if (!System.Text.RegularExpressions.Regex.IsMatch(f[3], @"^[a-z0-9.-]+$")) return null;
         return new WarpPath { Quic = f[0] == "quic", Ip = f[1], Port = port, Sni = f[3] };
     }
 
     /// QUIC runs MASQUE over UDP (fastest, no TCP-inside-TCP); otherwise HTTP/2 over TCP+TLS.
-    public string Args(int mtu, string config) =>
+    public string Args(int mtu, string config, string defaultConfig) =>
         "nativetun" + (Quic ? "" : " --http2") + " -s " + Sni + (Port != 443 ? " -P " + Port : "")
         + (mtu > 0 && !Quic ? " -m " + mtu : "") + " --always-reconnect"
-        + (config == Setup.ConfigPath ? "" : " -c \"" + config + "\"");
+        + (config == defaultConfig ? "" : " -c \"" + config + "\"");
 }
 
 /// Finds a way through whatever network we're on. Before connecting it knocks on a handful of WARP routes
@@ -45,6 +47,7 @@ static class Pathfinder
     static readonly string[] Snis = { "www.cloudflare.com", "cloudflare.com", "one.one.one.one" };
     const int ProbeTimeoutMs = 2000;   // TCP + TLS
     const int QuicTimeoutMs = 1000;    // a QUIC server answers within one round trip, so silence comes quickly
+    public const int Intercepted = -2;
 
     public sealed class Plan
     {
@@ -66,9 +69,8 @@ static class Pathfinder
         return ip;
     }
 
-    public static async Task<Plan> ScoutAsync(Phys phys, string endpoint, byte[] pinnedKey, string remembered)
+    internal static List<WarpPath> Candidates(string endpoint, WarpPath remembered, Random rnd)
     {
-        var rnd = new Random();
         var used = new List<string> { endpoint };
         string a1 = Alternate(rnd, used), a2 = Alternate(rnd, used), a3 = Alternate(rnd, used);
         string sni = Snis[0];
@@ -85,20 +87,33 @@ static class Pathfinder
             new() { Ip = a1, Port = 4500, Sni = Snis[1] },
             new() { Ip = a2, Port = 8095, Sni = Snis[2] },
         };
-        var mem = WarpPath.Parse(remembered);
-        if (mem != null)
+        if (remembered != null)
         {
-            candidates.RemoveAll(c => c.Key == mem.Key);
-            candidates.Insert(0, mem);
+            candidates.RemoveAll(c => c.Key == remembered.Key);
+            candidates.Insert(0, remembered);
         }
+        return candidates;
+    }
 
+    public static async Task<Plan> ScoutAsync(Phys phys, string endpoint, byte[] pinnedKey, string remembered)
+    {
+        var mem = WarpPath.Parse(remembered);
+        var candidates = Candidates(endpoint, mem, new Random());
         var sw = Stopwatch.StartNew();
         var results = await Task.WhenAll(candidates.Select(c => c.Quic ? QuicProbeAsync(phys.Address, c) : TlsProbeAsync(phys.Address, c, pinnedKey))).ConfigureAwait(false);
-        var plan = new Plan { Tried = candidates.Count, Ms = sw.ElapsedMilliseconds };
+        var plan = Order(candidates, results, mem, endpoint);
+        plan.Ms = sw.ElapsedMilliseconds;
+        return plan;
+    }
+
+    /// Turns probe results (ms, -1 = silence, -2 = someone else's certificate) into the order routes get tried.
+    internal static Plan Order(List<WarpPath> candidates, int[] results, WarpPath mem, string endpoint)
+    {
+        var plan = new Plan { Tried = candidates.Count };
         for (int i = 0; i < candidates.Count; i++)
         {
             candidates[i].Ms = results[i] >= 0 ? results[i] : -1;
-            if (results[i] == -2) plan.Intercepted = true;
+            if (results[i] == Intercepted) plan.Intercepted = true;
         }
 
         var open = candidates.Where(c => c.Ms >= 0).ToList();
@@ -113,8 +128,8 @@ static class Pathfinder
         paths.AddRange(tcp.Where(c => c.Ms <= best * 3 + 150));
         paths.AddRange(tcp.Where(c => c.Ms > best * 3 + 150));
         // Silence everywhere may just mean the probes are what's filtered: keep the TCP routes as a last resort.
-        paths.AddRange(candidates.Where(c => !c.Quic && c.Ms < 0 && results[candidates.IndexOf(c)] != -2));
-        if (paths.Count == 0) paths.Add(new WarpPath { Ip = endpoint, Port = 443, Sni = sni });
+        paths.AddRange(candidates.Where((c, i) => !c.Quic && c.Ms < 0 && results[i] != Intercepted && !paths.Contains(c)));
+        if (paths.Count == 0) paths.Add(new WarpPath { Ip = endpoint, Port = 443, Sni = Snis[0] });
         plan.Paths = paths;
         return plan;
     }
@@ -143,7 +158,7 @@ static class Pathfinder
             byte[] key = null;
             using var ssl = new SslStream(new NetworkStream(s, false), false, (o, cert, chain, errors) => { key = cert?.GetPublicKey(); return true; });
             await ssl.AuthenticateAsClientAsync(p.Sni).ConfigureAwait(false);
-            if (pinnedKey != null && key != null && !key.SequenceEqual(pinnedKey)) return -2;
+            if (pinnedKey != null && key != null && !key.SequenceEqual(pinnedKey)) return Intercepted;
             return (int)sw.ElapsedMilliseconds;
         }
     }
@@ -178,7 +193,7 @@ static class Pathfinder
 /// Which route worked on which network, so the next connect there goes straight to it.
 static class PathMemory
 {
-    static string FilePath => Path.Combine(Setup.Dir, "networks.ini");
+    internal static string FilePath = Path.Combine(Setup.Dir, "networks.ini");
     static readonly object gate = new();
     const int Keep = 40;
 
@@ -190,7 +205,8 @@ static class PathMemory
 
     public static string Get(string network)
     {
-        lock (gate) return Load().LastOrDefault(f => f[1] == network)?[2];
+        if (string.IsNullOrEmpty(network)) return null;
+        lock (gate) return Load().LastOrDefault(f => f[1] == Clean(network))?[2];
     }
 
     public static void Set(string network, WarpPath p)
@@ -199,13 +215,21 @@ static class PathMemory
         lock (gate)
         {
             var rows = Load().Where(f => f[1] != network).ToList();
-            rows.Add(new[] { DateTime.UtcNow.ToString("s"), network.Replace('\t', ' '), p.Key });
+            rows.Add(new[] { DateTime.UtcNow.ToString("s"), Clean(network), p.Key });
             try
             {
-                Directory.CreateDirectory(Setup.Dir);
-                File.WriteAllLines(FilePath, rows.Skip(Math.Max(0, rows.Count - Keep)).Select(f => string.Join("\t", f)));
+                Directory.CreateDirectory(Path.GetDirectoryName(FilePath));
+                Setup.WriteAllLinesAtomic(FilePath, rows.Skip(Math.Max(0, rows.Count - Keep)).Select(f => string.Join("\t", f)));
             }
             catch { }
         }
     }
+
+    /// "Forget learned routes": every network gets scouted from scratch next time.
+    public static void Clear()
+    {
+        lock (gate) try { File.Delete(FilePath); } catch { }
+    }
+
+    static string Clean(string s) => s.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
 }

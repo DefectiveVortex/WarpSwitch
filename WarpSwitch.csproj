@@ -20,7 +20,9 @@
     <Authors>Vortex</Authors>
     <Copyright>© 2026 Vortex</Copyright>
     <Description>System-wide Cloudflare WARP that finds its way through restricted networks. Made by Vortex.</Description>
-    <Version>2.0.0</Version>
+    <!-- The one place the version lives. Release builds override it from the git tag (build.ps1 -Version). -->
+    <Version>2.1.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateResourceUsePreserializedResources>false</GenerateResourceUsePreserializedResources>
     <EnableDefaultItems>false</EnableDefaultItems>
@@ -29,7 +31,12 @@
     <Compile Include="src\**\*.cs" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="WarpSwitch.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <Reference Include="System.Net.Http" />
+    <Reference Include="System.Numerics" />
+    <Reference Include="Microsoft.CSharp" />
     <!-- WinRT metadata for the Mobile Hotspot API (read straight from Windows, nothing to download). -->
     <Reference Include="Windows.Foundation"><HintPath>$(WinDir)\System32\WinMetadata\Windows.Foundation.winmd</HintPath><Private>False</Private></Reference>
     <Reference Include="Windows.Networking"><HintPath>$(WinDir)\System32\WinMetadata\Windows.Networking.winmd</HintPath><Private>False</Private></Reference>
@@ -39,4 +46,7 @@
     <EmbeddedResource Include="res\usque.exe.gz" LogicalName="usque.exe.gz" />
     <EmbeddedResource Include="res\wintun.dll.gz" LogicalName="wintun.dll.gz" />
   </ItemGroup>
+  <Target Name="CheckHelpers" BeforeTargets="BeforeBuild" Condition="!Exists('res\usque.exe.gz') Or !Exists('res\wintun.dll.gz')">
+    <Error Text="res\usque.exe.gz / res\wintun.dll.gz are missing. Run build.ps1 once: it downloads usque and wintun, checks their SHA-256 and packs them." />
+  </Target>
 </Project>
