@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- .NET Framework 4.8 ships with every Windows 10/11 PC, so the exe runs with nothing else installed. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>WarpSwitch</AssemblyName>
+    <RootNamespace>WarpSwitch</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>res\app.ico</ApplicationIcon>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
+    <Product>WARP Switch</Product>
+    <AssemblyTitle>WARP Switch</AssemblyTitle>
+    <Company>Vortex</Company>
+    <Authors>Vortex</Authors>
+    <Copyright>© 2026 Vortex</Copyright>
+    <Description>System-wide Cloudflare WARP that finds its way through restricted networks. Made by Vortex.</Description>
+    <Version>2.0.0</Version>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateResourceUsePreserializedResources>false</GenerateResourceUsePreserializedResources>
+    <EnableDefaultItems>false</EnableDefaultItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="src\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+    <!-- WinRT metadata for the Mobile Hotspot API (read straight from Windows, nothing to download). -->
+    <Reference Include="Windows.Foundation"><HintPath>$(WinDir)\System32\WinMetadata\Windows.Foundation.winmd</HintPath><Private>False</Private></Reference>
+    <Reference Include="Windows.Networking"><HintPath>$(WinDir)\System32\WinMetadata\Windows.Networking.winmd</HintPath><Private>False</Private></Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Produced by build.ps1 from the checksum-verified usque release and the signed wintun.dll. -->
+    <EmbeddedResource Include="res\usque.exe.gz" LogicalName="usque.exe.gz" />
+    <EmbeddedResource Include="res\wintun.dll.gz" LogicalName="wintun.dll.gz" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,19 @@
+# build output
+bin/
+obj/
+dist/
+TestResults/
+*.old
+
+# downloaded + verified third-party binaries (build.ps1 fetches them)
+.deps/
+res/*.gz
+
+# the locally built app
+*.exe
+
+# editors
+.vs/
+.vscode/
+.idea/
+*.user
