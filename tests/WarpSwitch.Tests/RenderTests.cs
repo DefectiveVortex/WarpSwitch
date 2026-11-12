@@ -67,15 +67,36 @@ public class RenderTests
         h.Preview(false, false, 0, "VORTEX-PC 4821", "k7m2p9xq4r");
     });
 
+    /// Shows the window off-screen (child controls only paint once it really exists) and captures its client area.
+    static Bitmap ClientShot(Form form, Size? clientSize = null)
+    {
+        form.StartPosition = FormStartPosition.Manual;
+        form.Location = new Point(-6000, 0);
+        form.Show();
+        if (clientSize != null) form.ClientSize = clientSize.Value;
+        Application.DoEvents();
+        Thread.Sleep(300);
+        Application.DoEvents();
+        using var full = new Bitmap(form.Width, form.Height);
+        form.DrawToBitmap(full, new Rectangle(Point.Empty, form.Size));
+        var origin = form.PointToScreen(Point.Empty);
+        return full.Clone(new Rectangle(new Point(origin.X - form.Left, origin.Y - form.Top), form.ClientSize), full.PixelFormat);
+    }
+
+    static void SaveShot(Bitmap bmp, string name)
+    {
+        Assert.True(bmp.Width > 200 && bmp.Height > 200);
+        if (string.IsNullOrEmpty(OutDir)) return;
+        Directory.CreateDirectory(OutDir);
+        bmp.Save(Path.Combine(OutDir, name + ".png"), ImageFormat.Png);
+    }
+
     [Fact]
     public void QrWindow() => OnSta(() =>
     {
         using var form = new QrForm("VORTEX-PC 4821", "k7m2p9xq4r", Theme.Current(), null);
-        form.CreateControl();
-        using var bmp = new Bitmap(form.ClientSize.Width, form.ClientSize.Height);
-        form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.ClientSize));
-        Assert.True(bmp.Width > 200);
-        if (!string.IsNullOrEmpty(OutDir)) { Directory.CreateDirectory(OutDir); bmp.Save(Path.Combine(OutDir, "qr.png"), ImageFormat.Png); }
+        using var bmp = ClientShot(form);
+        SaveShot(bmp, "qr");
     });
 
     [Fact]
@@ -87,15 +108,7 @@ public class RenderTests
         settings.Bypass.Add("203.0.113.0/24");
         settings.AutoConnectUntrusted = true;
         using var form = new SettingsForm(settings, Theme.Current(), null, new Tunnel(settings), () => { });
-        form.StartPosition = FormStartPosition.Manual;
-        form.Location = new Point(-6000, 0);   // child controls only paint once the window really exists
-        form.Show();
-        form.ClientSize = new Size(form.ClientSize.Width, (int)(form.DeviceDpi / 96f * 1240));   // tall enough to show everything
-        Application.DoEvents();
-        Thread.Sleep(300);
-        Application.DoEvents();
-        using var bmp = new Bitmap(form.Width, form.Height);
-        form.DrawToBitmap(bmp, new Rectangle(Point.Empty, form.Size));
-        if (!string.IsNullOrEmpty(OutDir)) { Directory.CreateDirectory(OutDir); bmp.Save(Path.Combine(OutDir, "settings.png"), ImageFormat.Png); }
+        using var bmp = ClientShot(form);
+        SaveShot(bmp, "settings");
     });
 }

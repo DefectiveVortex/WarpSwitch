@@ -59,7 +59,10 @@ sealed class Updater
 
     /// Is a newer release out, with its installer already uploaded? (Right after a release is published its files
     /// are still being built; that counts as "not yet" and the next check picks it up.)
-    public async Task<bool> CheckAsync()
+    public Task<bool> CheckAsync() => CheckAsync(Current);
+
+    /// <paramref name="current"/> is overridable so tests can check against the live releases as an older version.
+    internal async Task<bool> CheckAsync(Version current)
     {
         LastCheck = DateTime.Now;
         string tag;
@@ -71,7 +74,7 @@ sealed class Updater
             tag = Uri.UnescapeDataString(m.Groups[1].Value);
         }
         var version = ParseTag(tag);
-        if (version == null || version <= Current)
+        if (version == null || version <= current)
         {
             if (Available != null) { Available = null; Changed?.Invoke(); }
             return false;
@@ -106,33 +109,8 @@ sealed class Updater
             // Admin-only folder: nothing running as the user can swap the file between the check and the launch.
             SecureFolder.Ensure(Setup.SecureDir);
             string dir = Path.Combine(Setup.SecureDir, "updates");
-            Directory.CreateDirectory(dir);
-            foreach (var old in Directory.GetFiles(dir)) try { File.Delete(old); } catch { }
-            string path = Path.Combine(dir, installerName);
-
-            using (var http = Client(true, 300))
-            using (var resp = await http.GetAsync(DownloadUrl(Tag, installerName), HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
-            {
-                resp.EnsureSuccessStatusCode();
-                long total = resp.Content.Headers.ContentLength ?? -1;
-                using var src = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
-                using var dst = File.Create(path);
-                var buf = new byte[81920];
-                long done = 0;
-                int n;
-                while ((n = await src.ReadAsync(buf, 0, buf.Length).ConfigureAwait(false)) > 0)
-                {
-                    await dst.WriteAsync(buf, 0, n).ConfigureAwait(false);
-                    done += n;
-                    int pct = total > 0 ? (int)(done * 100 / total) : -1;
-                    if (pct != Progress) { Progress = pct; Changed?.Invoke(); }
-                }
-            }
-
-            using var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            if (!string.Equals(Setup.Hash(held), installerSha, StringComparison.OrdinalIgnoreCase))
-                throw new UserError("The downloaded update didn't match its published checksum, so it wasn't run. Try again later.");
-            Process.Start(new ProcessStartInfo(path, "/SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /relaunch=" + (reconnect ? "connect" : "show")) { UseShellExecute = false });
+            using var held = await DownloadVerifiedAsync(dir).ConfigureAwait(false);
+            Process.Start(new ProcessStartInfo(held.Name, "/SILENT /SUPPRESSMSGBOXES /NORESTART /SP- /relaunch=" + (reconnect ? "connect" : "show")) { UseShellExecute = false });
             await Task.Delay(1500).ConfigureAwait(false);   // let it map itself before the file is released
         }
         finally
@@ -141,5 +119,39 @@ sealed class Updater
             Progress = -1;
             Changed?.Invoke();
         }
+    }
+
+    /// Downloads the installer into <paramref name="dir"/> and returns it open for reading only (nothing can change
+    /// it while the handle is held), after checking its SHA-256 against the release's SHA256SUMS.txt.
+    internal async Task<FileStream> DownloadVerifiedAsync(string dir)
+    {
+        Directory.CreateDirectory(dir);
+        foreach (var old in Directory.GetFiles(dir)) try { File.Delete(old); } catch { }
+        string path = Path.Combine(dir, installerName);
+
+        using (var http = Client(true, 300))
+        using (var resp = await http.GetAsync(DownloadUrl(Tag, installerName), HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
+        {
+            resp.EnsureSuccessStatusCode();
+            long total = resp.Content.Headers.ContentLength ?? -1;
+            using var src = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            using var dst = File.Create(path);
+            var buf = new byte[81920];
+            long done = 0;
+            int n;
+            while ((n = await src.ReadAsync(buf, 0, buf.Length).ConfigureAwait(false)) > 0)
+            {
+                await dst.WriteAsync(buf, 0, n).ConfigureAwait(false);
+                done += n;
+                int pct = total > 0 ? (int)(done * 100 / total) : -1;
+                if (pct != Progress) { Progress = pct; Changed?.Invoke(); }
+            }
+        }
+
+        var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (string.Equals(Setup.Hash(held), installerSha, StringComparison.OrdinalIgnoreCase)) return held;
+        held.Dispose();
+        try { File.Delete(path); } catch { }
+        throw new UserError("The downloaded update didn't match its published checksum, so it wasn't run. Try again later.");
     }
 }

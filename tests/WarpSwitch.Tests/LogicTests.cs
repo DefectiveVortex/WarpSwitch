@@ -465,6 +465,15 @@ public class SetupTests
     }
 
     [Fact]
+    public void EmbedsThePinnedUsque()
+    {
+        using var src = typeof(Setup).Assembly.GetManifestResourceStream("usque.exe.gz");
+        Assert.NotNull(src);
+        using var gz = new System.IO.Compression.GZipStream(src, System.IO.Compression.CompressionMode.Decompress);
+        Assert.Equal("122F2E40208E81BB814FCB4BE4FBBBDC9246860F1F3784F72AE4512B97667E91", Setup.Hash(gz));   // usque 4.2.1 windows/amd64
+    }
+
+    [Fact]
     public void JoinCodeEscapesSpecialCharacters()
     {
         Assert.Equal(@"WIFI:T:WPA;S:a\;b\,c;P:p\:w\\x\"";;", Hotspot.JoinCode("a;b,c", "p:w\\x\""));

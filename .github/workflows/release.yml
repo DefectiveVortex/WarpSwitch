@@ -1,0 +1,51 @@
+name: Release
+
+# Publish a GitHub release with a tag like v2.2.0 and this builds the app from that tag, then attaches:
+#   WarpSwitch-Setup-2.2.0.exe       the installer (what the in-app updater downloads and runs)
+#   WarpSwitch-2.2.0-portable.exe    the single-file app
+#   SHA256SUMS.txt                   uploaded last: the updater only offers a release once this file lists the installer
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)build, e.g. v2.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Check the tag
+        shell: powershell
+        run: |
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "Release tags must look like v2.2.0 (got '$env:TAG')" }
+
+      - name: Inno Setup
+        shell: powershell
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
+      - name: Build, test, package
+        shell: powershell
+        run: .\build.ps1 -Version $env:TAG.TrimStart('v')
+
+      - name: Attach to the release
+        shell: powershell
+        run: |
+          $files = Get-ChildItem dist -File -Filter *.exe | ForEach-Object { $_.FullName }
+          gh release upload $env:TAG @files --clobber
+          if ($LASTEXITCODE -ne 0) { throw "upload failed" }
+          gh release upload $env:TAG dist\SHA256SUMS.txt --clobber
+          if ($LASTEXITCODE -ne 0) { throw "upload failed" }
