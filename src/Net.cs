@@ -300,6 +300,28 @@ static class Net
         return string.IsNullOrWhiteSpace(name) ? p.Name + " " + p.Gateway : name.Trim();
     }
 
+    /// Wi-Fi networks Windows remembers, by the same name NetworkName gives them (for "auto-connect on…").
+    public static List<string> KnownWifiNetworks()
+    {
+        var names = new List<string>();
+        try
+        {
+            foreach (var c in NetworkInformation.GetConnectionProfiles())
+            {
+                try
+                {
+                    if (!c.IsWlanConnectionProfile) continue;
+                    string n = c.ProfileName?.Trim();
+                    if (!string.IsNullOrEmpty(n) && !names.Contains(n, StringComparer.OrdinalIgnoreCase)) names.Add(n);
+                }
+                catch { }
+            }
+        }
+        catch { }
+        names.Sort(StringComparer.OrdinalIgnoreCase);
+        return names;
+    }
+
     /// Windows' own check says this network is holding traffic back for a sign-in page.
     public static bool BehindLoginPage(Phys p)
     {

@@ -11,7 +11,7 @@ sealed class QrForm : Form
     readonly QrCode code;
     readonly string ssid;
     readonly Theme t;
-    readonly Fonts fonts = new();
+    readonly Fonts fonts;
     readonly float s;
 
     public QrForm(string ssid, string passphrase, Theme theme, Icon icon)
@@ -19,7 +19,8 @@ sealed class QrForm : Form
         this.ssid = ssid;
         t = theme;
         code = QrCode.Encode(Hotspot.JoinCode(ssid, passphrase));
-        s = DeviceDpi / 96f;
+        s = Native.DisplayScale();
+        fonts = new Fonts(s);
         Text = "Join " + ssid;
         Icon = icon;
         AutoScaleMode = AutoScaleMode.None;

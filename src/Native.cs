@@ -47,6 +47,18 @@ static class Native
         return !SystemParametersInfo(0x1042 /* SPI_GETCLIENTAREAANIMATION */, 0, ref on, 0) || on;
     }
 
+    /// The display scale this (system-DPI-aware) app runs at: 1.25 at 125 %. Control.DeviceDpi can't be used for
+    /// this: on .NET Framework 4.8 it says 96 unless the app opts in to WinForms' own high-DPI mode.
+    public static float DisplayScale()
+    {
+        try
+        {
+            using var g = Graphics.FromHwnd(IntPtr.Zero);
+            return Math.Max(1f, g.DpiX / 96f);
+        }
+        catch { return 1f; }
+    }
+
     public static void StyleTitleBar(IntPtr hwnd, bool dark, Color caption)
     {
         int on = dark ? 1 : 0;
@@ -54,6 +66,21 @@ static class Native
         int rgb = caption.R | (caption.G << 8) | (caption.B << 16);
         DwmSetWindowAttribute(hwnd, 35, ref rgb, 4);       // DWMWA_CAPTION_COLOR (Windows 11; ignored on 10)
         DwmSetWindowAttribute(hwnd, 34, ref rgb, 4);       // DWMWA_BORDER_COLOR: no bright outline around the dark window
+    }
+
+    [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] static extern int SetWindowTheme(IntPtr hwnd, string appName, string idList);
+
+    /// Dark scroll bars on a stock control (a text box), like Explorer's in dark mode.
+    public static void DarkScrollBars(IntPtr hwnd)
+    {
+        try { SetWindowTheme(hwnd, "DarkMode_Explorer", null); } catch { }
+    }
+
+    /// Windows 11's rounded window corners for pop-ups that don't get them by default (menus). Ignored on 10.
+    public static void RoundCorners(IntPtr hwnd, bool small = true)
+    {
+        int pref = small ? 3 : 2;                         // DWMWCP_ROUNDSMALL / DWMWCP_ROUND
+        DwmSetWindowAttribute(hwnd, 33, ref pref, 4);      // DWMWA_WINDOW_CORNER_PREFERENCE
     }
 
     // ---------------------------------------------------------------- interfaces

@@ -249,14 +249,16 @@ public class SettingsTests
             Assert.True(s.Notifications);
             Assert.True(s.CheckUpdates);
             Assert.Null(s.AnimationsOverride);
+            Assert.True(s.AutoConnect);
+            Assert.Empty(s.AutoConnectNetworks);
             s.ConnectOnLaunch = true;
             s.AnimationsOverride = false;
-            s.AutoConnectUntrusted = true;
+            s.AutoConnect = false;
             s.KillSwitch = true;
             s.EncryptDns = true;
             s.Notifications = false;
             s.Mtu = 1350;
-            s.TrustedNetworks = new List<string> { "HOME 1_5GHz", "Wi=Fi=Name" };
+            s.AutoConnectNetworks = new List<string> { "Campus Wi-Fi", "Wi=Fi=Name" };
             s.Bypass = new List<string> { "10.1.0.0/16", "printer.example.com" };
             s.SkippedVersion = "2.2.0";
             s.Save();
@@ -264,13 +266,48 @@ public class SettingsTests
             var b = Settings.Load(path);
             Assert.True(b.ConnectOnLaunch);
             Assert.False(b.AnimationsOverride);
-            Assert.True(b.AutoConnectUntrusted && b.KillSwitch && b.EncryptDns);
+            Assert.False(b.AutoConnect);
+            Assert.True(b.KillSwitch && b.EncryptDns);
             Assert.False(b.Notifications);
             Assert.Equal(1350, b.Mtu);
-            Assert.Equal(new[] { "HOME 1_5GHz", "Wi=Fi=Name" }, b.TrustedNetworks);
+            Assert.Equal(new[] { "Campus Wi-Fi", "Wi=Fi=Name" }, b.AutoConnectNetworks);
             Assert.Equal(new[] { "10.1.0.0/16", "printer.example.com" }, b.Bypass);
             Assert.Equal("2.2.0", b.SkippedVersion);
-            Assert.True(b.IsTrusted("home 1_5ghz"));
+            Assert.True(b.IsAutoConnectNetwork("campus wi-fi"));
+            Assert.False(b.IsAutoConnectNetwork("Coffee Shop"));
+            Assert.False(b.IsAutoConnectNetwork(null));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void SavedNetworksIgnoreCaseAndDuplicates()
+    {
+        var s = Settings.Load(Path.Combine(Path.GetTempPath(), "warpswitch-settings-" + Guid.NewGuid().ToString("N") + ".ini"));
+        Assert.True(s.SetAutoConnectNetwork("  Campus Wi-Fi ", true));
+        Assert.False(s.SetAutoConnectNetwork("CAMPUS WI-FI", true));
+        Assert.False(s.SetAutoConnectNetwork("", true));
+        Assert.Equal(new[] { "Campus Wi-Fi" }, s.AutoConnectNetworks);
+        Assert.True(s.SetAutoConnectNetwork("campus wi-fi", false));
+        Assert.False(s.SetAutoConnectNetwork("campus wi-fi", false));
+        Assert.Empty(s.AutoConnectNetworks);
+    }
+
+    /// 2.1 connected on every network *except* the trusted ones. That list means the opposite of the new one,
+    /// so it must not turn into networks WARP connects on by itself.
+    [Fact]
+    public void OldTrustedListIsNotCarriedOver()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "warpswitch-settings-" + Guid.NewGuid().ToString("N") + ".ini");
+        try
+        {
+            File.WriteAllText(path, "auto_connect_untrusted=1\ntrusted=HOME 1_5GHz\nkill_switch=1\n");
+            var s = Settings.Load(path);
+            Assert.Empty(s.AutoConnectNetworks);
+            Assert.False(s.IsAutoConnectNetwork("HOME 1_5GHz"));
+            Assert.True(s.KillSwitch);
+            s.Save();
+            Assert.DoesNotContain(File.ReadAllLines(path), l => l.StartsWith("trusted=") || l.StartsWith("auto_connect_untrusted="));
         }
         finally { File.Delete(path); }
     }

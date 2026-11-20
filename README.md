@@ -5,9 +5,7 @@ networks, anywhere that blocks or keeps cutting VPN-like traffic. One button sen
 one switch shares that protected connection to your other devices over Mobile Hotspot.
 
 <p align="center">
-  <img src="docs/screenshots/connected.png" width="300" alt="WARP Switch connected, with the hotspot sharing WARP">
-  &nbsp;
-  <img src="docs/screenshots/connecting.png" width="300" alt="WARP Switch moving to another route">
+  <img src="docs/screenshots/connected.png" width="720" alt="WARP Switch connected, with the hotspot sharing WARP and every setting on the left">
 </p>
 
 ## What it does
@@ -22,16 +20,16 @@ one switch shares that protected connection to your other devices over Mobile Ho
   code to join instead of typing the password.
 - **Kill switch** (optional): while WARP reconnects or switches routes, nothing leaves the PC outside it.
 - **Split tunnel**: addresses, ranges or host names that should skip WARP.
-- **Connects by itself** on networks you haven't marked as trusted (optional).
+- **Connects by itself** on the networks you save (campus Wi-Fi, a café), and only those.
 - **Encrypted DNS** outside the tunnel too, using Windows 11's own DNS over HTTPS (optional).
 - **Survives real life**: sleep and wake, moving between networks, Wi-Fi dropping, Explorer restarting, crashes
   (anything it changed is put back at the next launch).
 - **Updates itself** from this repository's releases.
 
 <p align="center">
-  <img src="docs/screenshots/settings.png" width="380" alt="Settings">
+  <img src="docs/screenshots/connecting.png" width="460" alt="WARP Switch moving to another route">
   &nbsp;
-  <img src="docs/screenshots/qr.png" width="240" alt="Join the hotspot by QR code">
+  <img src="docs/screenshots/qr.png" width="200" alt="Join the hotspot by QR code">
 </p>
 
 ## Install
@@ -57,9 +55,18 @@ the **⋯** menu.
 
 ## Using it
 
-- **Orb**: connect / disconnect (also Space or Enter). Click while it's starting to cancel.
+Everything is on one screen: the connection on the right, every setting on the left. Settings apply as soon as
+you flip them; hover one for what it does.
+
+- **Orb or Connect**: connect / disconnect (also Space or Enter). Click while it's starting to cancel.
+- **★ next to the network** (bottom right): save this network, so WARP turns on by itself whenever you join
+  it. **Auto-connect → Add network** saves others: any Wi-Fi Windows remembers, or type a name. WARP only
+  connects by itself on saved networks, and if you turn it off yourself it stays off there until you move to
+  another network.
 - **Hotspot switch**: share the connection (also H). While WARP is on, devices that join use WARP.
-- **⋯ menu**: Settings (Ctrl+,), the log, the app folder, updates.
+- **Skip WARP for**: remove an entry with its ×, add one with **+ Add**, or **Edit** the whole list.
+- **Keyboard**: Tab walks through the settings, Space flips the one with the ring, ←/→ pick an option, Esc lets go.
+- **⋯ menu**: the log, the app folder, updates.
 - **Close button**: hides to the tray. Right-click the tray icon to quit.
 
 Shortcuts and scripts can drive a running copy:

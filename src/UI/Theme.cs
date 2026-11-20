@@ -14,6 +14,7 @@ sealed class Theme
 {
     public readonly bool Dark = true;
     public Color Bg, BgTop, BgBottom, Card, Border, Text, Sub, Faint, Ring, Track, Hover;
+    public Color Surface, SurfaceHover, Chip, Line;
     public Color GlassFill, GlassEdge, GlassShine;
     public Color Accent, Accent2, Accent3, Amber, Idle, Good, Bad;
 
@@ -23,41 +24,51 @@ sealed class Theme
     {
         Bg = Hex(0x0C0A16), BgTop = Hex(0x161129), BgBottom = Hex(0x07060C),
         Card = Hex(0x17142A), Border = Hex(0x2A2545), Text = Hex(0xF3F0FF), Sub = Hex(0xA9A3C9), Faint = Hex(0x6F6994),
-        Ring = Hex(0x3A3366), Track = Hex(0x3A355C), Hover = Hex(0x231E3D),
+        Ring = Hex(0x3A3366), Track = Hex(0x332E52), Hover = Hex(0x231E3D),
+        // The settings side: soft raised cards on the night background, no hard outlines.
+        Surface = Hex(0x15122A), SurfaceHover = Hex(0x1D1937), Chip = Hex(0x221D3D), Line = Color.FromArgb(14, 255, 255, 255),
         GlassFill = Color.FromArgb(16, 255, 255, 255), GlassEdge = Color.FromArgb(30, 255, 255, 255), GlassShine = Color.FromArgb(40, 255, 255, 255),
         Accent = Hex(0xFF8A1F), Accent2 = Hex(0xFF3D7F), Accent3 = Hex(0x8B5CF6), Amber = Hex(0xFFB347),
         Idle = Hex(0x5B4FB0), Good = Hex(0x3DDC97), Bad = Hex(0xFF6B81),
     };
 }
 
-/// Point sizes; GDI scales them with the display DPI by itself.
+/// Fonts in pixels at the window's own scale, so a window that's shrunk to fit a small screen shrinks its text
+/// with it. Sizes are given in points at 96 dpi (pt × 4/3 = px).
 sealed class Fonts : IDisposable
 {
-    public readonly Font Brand = Pick(11f, FontStyle.Regular, "Bahnschrift SemiBold", "Segoe UI Semibold");
-    public readonly Font BrandThin = Pick(11f, FontStyle.Regular, "Bahnschrift Light", "Segoe UI Light");
-    public readonly Font Title = Pick(19f, FontStyle.Regular, "Bahnschrift SemiBold", "Segoe UI Semibold");
-    public readonly Font Body = new("Segoe UI", 9.75f);
-    public readonly Font Small = new("Segoe UI", 8.75f);
-    public readonly Font Label = Pick(7.5f, FontStyle.Regular, "Bahnschrift SemiBold", "Segoe UI Semibold");
-    public readonly Font Value = new("Segoe UI Semibold", 10f);
-    public readonly Font CardTitle = new("Segoe UI Semibold", 10.5f);
-    public readonly Font Signature = Pick(15f, FontStyle.Regular, "Segoe Script", "Gabriola", "Segoe UI Italic");
-    public readonly Font Tiny = Pick(7.5f, FontStyle.Regular, "Bahnschrift Light", "Segoe UI");
+    public readonly Font Brand, BrandThin, Title, Body, Small, Label, Value, CardTitle, Signature, Tiny, Button;
 
-    static Font Pick(float size, FontStyle style, params string[] families)
+    public Fonts(float scale = 1f)
+    {
+        Font Px(float pt, FontStyle style, params string[] families) => Pick(pt * 4f / 3f * scale, style, families);
+        Brand = Px(11f, FontStyle.Regular, "Bahnschrift SemiBold", "Segoe UI Semibold");
+        BrandThin = Px(11f, FontStyle.Regular, "Bahnschrift Light", "Segoe UI Light");
+        Title = Px(20f, FontStyle.Regular, "Bahnschrift SemiBold", "Segoe UI Semibold");
+        Body = Px(9.75f, FontStyle.Regular, "Segoe UI");
+        Small = Px(8.75f, FontStyle.Regular, "Segoe UI");
+        Label = Px(7.5f, FontStyle.Regular, "Bahnschrift SemiBold", "Segoe UI Semibold");
+        Value = Px(10.5f, FontStyle.Regular, "Segoe UI Semibold");
+        CardTitle = Px(10.5f, FontStyle.Regular, "Segoe UI Semibold");
+        Signature = Px(13f, FontStyle.Regular, "Segoe Script", "Gabriola", "Segoe UI Italic");
+        Tiny = Px(7.5f, FontStyle.Regular, "Bahnschrift Light", "Segoe UI");
+        Button = Px(11f, FontStyle.Regular, "Segoe UI Semibold");
+    }
+
+    static Font Pick(float px, FontStyle style, params string[] families)
     {
         foreach (var name in families)
         {
-            var f = new Font(name, size, style);
+            var f = new Font(name, px, style, GraphicsUnit.Pixel);
             if (f.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) return f;
             f.Dispose();
         }
-        return new Font("Segoe UI", size, style);
+        return new Font("Segoe UI", px, style, GraphicsUnit.Pixel);
     }
 
     public void Dispose()
     {
-        foreach (var f in new[] { Brand, BrandThin, Title, Body, Small, Label, Value, CardTitle, Signature, Tiny }) f.Dispose();
+        foreach (var f in new[] { Brand, BrandThin, Title, Body, Small, Label, Value, CardTitle, Signature, Tiny, Button }) f.Dispose();
     }
 }
 
@@ -87,6 +98,104 @@ static class Draw
             g.DrawPath(pen, path);
     }
 
+    /// Soft raised card: an opaque fill a shade above the background and a barely-there top edge.
+    public static void Card(Graphics g, Rectangle r, float radius, Theme t, Color? fill = null)
+    {
+        using var path = Round(r, radius);
+        using (var b = new SolidBrush(fill ?? t.Surface)) g.FillPath(b, path);
+        using var edge = new LinearGradientBrush(new RectangleF(r.X, r.Y - 1, r.Width, r.Height + 2), Color.FromArgb(22, 255, 255, 255), Color.FromArgb(4, 255, 255, 255), 90f);
+        using var pen = new Pen(edge, 1f);
+        g.DrawPath(pen, path);
+    }
+
+    /// The on/off switch. <paramref name="t"/> runs 0 (off) → 1 (on) while it animates; the knob slides with a
+    /// little stretch mid-way and the track fades into the sunset gradient.
+    public static void Switch(Graphics g, Rectangle r, float t, bool enabled, bool hot, Theme th, float scale)
+    {
+        t = Math.Max(0f, Math.Min(1f, t));
+        using (var path = Round(r, r.Height / 2f))
+        {
+            Color off = enabled ? (hot ? Mix(th.Track, Color.White, 0.08f) : th.Track) : Mix(th.Track, th.Bg, 0.5f);
+            using (var b = new SolidBrush(off)) g.FillPath(b, path);
+            if (t > 0.01f)
+            {
+                int a = (int)(255 * t * (enabled ? 1f : 0.45f));
+                using var on = new LinearGradientBrush(r, Alpha(th.Accent, a), Alpha(th.Accent2, a), 0f);
+                g.FillPath(on, path);
+            }
+        }
+        float pad = 3 * scale, d = r.Height - 2 * pad;
+        float stretch = (float)Math.Sin(Math.PI * t) * d * 0.28f;
+        float x = r.X + pad + t * (r.Width - d - 2 * pad) - stretch * t;
+        var knob = new RectangleF(x, r.Y + pad, d + stretch, d);
+        using (var shadow = Round(new RectangleF(knob.X, knob.Y + scale, knob.Width, knob.Height), d / 2))
+        using (var sb = new SolidBrush(Color.FromArgb(enabled ? 60 : 25, 0, 0, 0)))
+            g.FillPath(sb, shadow);
+        using var kp = Round(knob, d / 2);
+        using var kb = new SolidBrush(enabled ? Color.White : Mix(Color.White, th.Track, 0.55f));
+        g.FillPath(kb, kp);
+    }
+
+    /// Rounded pill button: the sunset gradient for the main action, a soft tint otherwise.
+    public static void Pill(Graphics g, Rectangle r, string text, Font f, Theme t, bool primary, bool hot, bool enabled, float radius = -1)
+    {
+        using var path = Round(r, radius < 0 ? r.Height / 2f : radius);
+        if (primary && enabled)
+        {
+            using var b = new LinearGradientBrush(r, hot ? Mix(t.Accent, Color.White, 0.12f) : t.Accent, hot ? Mix(t.Accent2, Color.White, 0.12f) : t.Accent2, 0f);
+            g.FillPath(b, path);
+        }
+        else
+        {
+            using var b = new SolidBrush(Color.FromArgb(!enabled ? 10 : hot ? 34 : 22, 255, 255, 255));
+            g.FillPath(b, path);
+        }
+        Text(g, text, f, r, primary && enabled ? Color.White : enabled ? t.Text : t.Faint, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+
+    public static void Wifi(Graphics g, RectangleF box, Color c, float scale, float weight = 1.8f)
+    {
+        float cx = box.X + box.Width / 2, cy = box.Y + box.Height * 0.78f;
+        using var pen = new Pen(c, weight * scale) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        foreach (float f in new[] { 0.3f, 0.58f })
+        {
+            float rad = box.Height * f;
+            g.DrawArc(pen, cx - rad, cy - rad, 2 * rad, 2 * rad, 225, 90);
+        }
+        float d = weight * 1.9f * scale;
+        using var dot = new SolidBrush(c);
+        g.FillEllipse(dot, cx - d / 2, cy - d / 2, d, d);
+    }
+
+    public static void Cross(Graphics g, RectangleF box, Color c, float width)
+    {
+        using var pen = new Pen(c, width) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        g.DrawLine(pen, box.Left, box.Top, box.Right, box.Bottom);
+        g.DrawLine(pen, box.Left, box.Bottom, box.Right, box.Top);
+    }
+
+    public static void Plus(Graphics g, float cx, float cy, float half, Color c, float width)
+    {
+        using var pen = new Pen(c, width) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        g.DrawLine(pen, cx - half, cy, cx + half, cy);
+        g.DrawLine(pen, cx, cy - half, cx, cy + half);
+    }
+
+    /// Five-point star, filled or outlined ("auto-connect here").
+    public static void Star(Graphics g, float cx, float cy, float r, Color c, bool filled, float width)
+    {
+        var pts = new PointF[10];
+        for (int i = 0; i < 10; i++)
+        {
+            double a = -Math.PI / 2 + i * Math.PI / 5;
+            float rr = i % 2 == 0 ? r : r * 0.45f;
+            pts[i] = new PointF(cx + (float)Math.Cos(a) * rr, cy + (float)Math.Sin(a) * rr);
+        }
+        if (filled) using (var b = new SolidBrush(c)) g.FillPolygon(b, pts);
+        using var pen = new Pen(c, width) { LineJoin = LineJoin.Round };
+        g.DrawPolygon(pen, pts);
+    }
+
     public static Color Mix(Color a, Color b, float t)
     {
         t = Math.Max(0f, Math.Min(1f, t));
@@ -105,11 +214,13 @@ static class Draw
     {
         if (string.IsNullOrEmpty(s)) return;
         using var path = new GraphicsPath();
-        float em = g.DpiY * f.SizeInPoints / 72f;
+        float em = f.Unit == GraphicsUnit.Pixel ? f.Size : g.DpiY * f.SizeInPoints / 72f;
         using var fmt = (StringFormat)StringFormat.GenericTypographic.Clone();
         fmt.Alignment = center ? StringAlignment.Center : StringAlignment.Near;
         fmt.LineAlignment = StringAlignment.Center;
         fmt.FormatFlags |= StringFormatFlags.NoWrap;
+        // GenericTypographic lays out only whole lines; a script font's line is taller than its box, so it drew nothing.
+        fmt.FormatFlags &= ~StringFormatFlags.LineLimit;
         path.AddString(s, f.FontFamily, (int)f.Style, em, r, fmt);
         var bounds = path.GetBounds();
         if (bounds.Width <= 0) return;
@@ -180,6 +291,17 @@ sealed class MenuRenderer : ToolStripProfessionalRenderer
     {
         this.t = t;
         RoundedEdges = false;
+    }
+
+    /// Rounded highlight inset from the edges instead of a hard full-width bar.
+    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+    {
+        if (!e.Item.Selected || !e.Item.Enabled) return;
+        var r = new Rectangle(4, 1, e.Item.Width - 8, e.Item.Height - 2);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var path = Draw.Round(r, 6);
+        using var b = new SolidBrush(t.Hover);
+        e.Graphics.FillPath(b, path);
     }
 
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)

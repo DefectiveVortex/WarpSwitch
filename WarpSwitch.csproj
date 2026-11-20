@@ -21,7 +21,7 @@
     <Copyright>© 2026 Vortex</Copyright>
     <Description>System-wide Cloudflare WARP that finds its way through restricted networks. Made by Vortex.</Description>
     <!-- The one place the version lives. Release builds override it from the git tag (build.ps1 -Version). -->
-    <Version>2.1.0</Version>
+    <Version>2.2.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateResourceUsePreserializedResources>false</GenerateResourceUsePreserializedResources>

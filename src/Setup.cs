@@ -261,18 +261,33 @@ sealed class Settings
     public bool ConnectOnLaunch, TrayHintShown;
     public bool? AnimationsOverride;          // null = follow Windows' "Animation effects"
     public bool Notifications = true;
-    public bool AutoConnectUntrusted;         // connect by itself on networks that aren't in TrustedNetworks
+    public bool AutoConnect = true;           // connect by itself on the networks in AutoConnectNetworks (an empty list does nothing)
     public bool KillSwitch;
     public bool EncryptDns;                   // Windows' DNS-over-HTTPS for Cloudflare's resolvers
     public bool CheckUpdates = true;
     public int Mtu;                           // 0 = usque's default (1280)
-    public List<string> TrustedNetworks = new();
+    public List<string> AutoConnectNetworks = new();
     public List<string> Bypass = new();       // IPv4 addresses, CIDR ranges or host names that skip WARP
     public string SkippedVersion = "";
 
     public bool Animations => AnimationsOverride ?? Native.ClientAreaAnimation();
 
-    public bool IsTrusted(string network) => network != null && TrustedNetworks.Any(n => string.Equals(n, network, StringComparison.OrdinalIgnoreCase));
+    public bool IsAutoConnectNetwork(string network) =>
+        !string.IsNullOrEmpty(network) && AutoConnectNetworks.Any(n => string.Equals(n, network, StringComparison.OrdinalIgnoreCase));
+
+    /// Adds or removes a saved network; returns true if the list changed.
+    public bool SetAutoConnectNetwork(string network, bool on)
+    {
+        network = Clean(network ?? "");
+        if (network.Length == 0) return false;
+        if (on)
+        {
+            if (IsAutoConnectNetwork(network)) return false;
+            AutoConnectNetworks.Add(network);
+            return true;
+        }
+        return AutoConnectNetworks.RemoveAll(n => string.Equals(n, network, StringComparison.OrdinalIgnoreCase)) > 0;
+    }
 
     static string DefaultPath => Path.Combine(Setup.Dir, "settings.ini");
     readonly string path;
@@ -296,13 +311,15 @@ sealed class Settings
                     case "tray_hint_shown": s.TrayHintShown = on; break;
                     case "animations": s.AnimationsOverride = v == "" ? null : on; break;
                     case "notifications": s.Notifications = on; break;
-                    case "auto_connect_untrusted": s.AutoConnectUntrusted = on; break;
+                    // 2.1's "auto_connect_untrusted" and "trusted=" meant the opposite (connect everywhere except
+                    // these), so they can't be carried over: they're dropped and the new list starts empty.
+                    case "auto_connect": s.AutoConnect = on; break;
+                    case "auto_connect_network": if (v.Length > 0) s.SetAutoConnectNetwork(v, true); break;
                     case "kill_switch": s.KillSwitch = on; break;
                     case "encrypt_dns": s.EncryptDns = on; break;
                     case "check_updates": s.CheckUpdates = on; break;
                     case "skipped_version": s.SkippedVersion = v; break;
                     case "mtu": if (int.TryParse(v, out int mtu) && (mtu == 0 || mtu is >= 1280 and <= 1500)) s.Mtu = mtu; break;
-                    case "trusted": if (v.Length > 0) s.TrustedNetworks.Add(v); break;
                     case "bypass": if (v.Length > 0) s.Bypass.Add(v); break;
                 }
             }
@@ -322,14 +339,14 @@ sealed class Settings
                 "tray_hint_shown=" + Bit(TrayHintShown),
                 "animations=" + (AnimationsOverride == null ? "" : Bit(AnimationsOverride.Value)),
                 "notifications=" + Bit(Notifications),
-                "auto_connect_untrusted=" + Bit(AutoConnectUntrusted),
+                "auto_connect=" + Bit(AutoConnect),
                 "kill_switch=" + Bit(KillSwitch),
                 "encrypt_dns=" + Bit(EncryptDns),
                 "check_updates=" + Bit(CheckUpdates),
                 "skipped_version=" + SkippedVersion,
                 "mtu=" + Mtu,
             };
-            lines.AddRange(TrustedNetworks.Select(n => "trusted=" + Clean(n)));
+            lines.AddRange(AutoConnectNetworks.Select(n => "auto_connect_network=" + Clean(n)));
             lines.AddRange(Bypass.Select(b => "bypass=" + Clean(b)));
             Setup.WriteAllLinesAtomic(path, lines);
         }

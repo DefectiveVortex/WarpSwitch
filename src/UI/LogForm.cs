@@ -24,7 +24,7 @@ sealed class LogForm : Form
     {
         this.log = log;
         this.theme = theme;
-        float s = DeviceDpi / 96f;
+        float s = Native.DisplayScale();
         Text = Program.Name + " log";
         Icon = icon;
         StartPosition = FormStartPosition.CenterScreen;

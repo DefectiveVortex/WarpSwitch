@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.2.0
+
+### Changed
+- **A softer, one-screen look.** The connection lives in a rounded night-sky panel on the right (the vortex,
+  what it's doing, and a dock with the network and a big Connect button); every setting sits on the left as
+  rounded cards with animated switches, and applies the moment you flip it. The separate Settings window is gone.
+- **Auto-connect works from networks you save**, instead of every network you hadn't marked as trusted. Save
+  the one you're on with the ★ next to it, or pick from the Wi-Fi networks Windows remembers. The old trusted
+  list isn't carried over, because it meant the opposite: if you used auto-connect, add the networks you want
+  it on.
+
+### New
+- Split-tunnel entries show as chips you can remove one at a time; Edit opens the whole list.
+- Hover a setting for what it does. Tab, Space and the arrow keys reach every setting from the keyboard.
+- The window shrinks to fit when the screen is too small for it at your display scale.
+- When WARP gives up, the whole reason is shown instead of being cut off after two lines.
+
+### Fixed
+- **Cramped on scaled displays.** At 125 % or 150 % the windows were laid out for 100 % while their text grew
+  with the display, so everything crowded together. Layout and text now scale together.
+
 ## 2.1.0
 
 The first public release, with an installer and automatic updates.

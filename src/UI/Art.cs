@@ -17,6 +17,8 @@ sealed class VortexArt : IDisposable
     readonly Random rnd = new(1123);
     readonly Particle[] particles = new Particle[34];
     Size client;
+    Rectangle hero;
+    float heroRadius;
     PointF c;
     float rOrb, rArms, aBack, aFront, time;
     Bitmap sky, back, front;
@@ -33,9 +35,13 @@ sealed class VortexArt : IDisposable
         s = scale;
     }
 
-    public void Layout(Size size, PointF center, float orbRadius, float armRadius)
+    /// <paramref name="panel"/>: the rounded hero panel the night sky lives in; the rest of the window gets the
+    /// plain background the settings cards sit on.
+    public void Layout(Size size, Rectangle panel, float panelRadius, PointF center, float orbRadius, float armRadius)
     {
         client = size;
+        hero = panel;
+        heroRadius = panelRadius;
         c = center;
         rOrb = orbRadius;
         rArms = armRadius;
@@ -119,21 +125,48 @@ sealed class VortexArt : IDisposable
         using var g = Graphics.FromImage(bmp);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         var all = new Rectangle(Point.Empty, client);
+
+        // The settings side: the plain night background with two very faint glows for depth.
+        using (var bg = new SolidBrush(t.Bg)) g.FillRectangle(bg, all);
+        Glow(g, client.Width * 0.08f, -client.Height * 0.05f, client.Height * 0.75f, Draw.Alpha(t.Accent3, 22));
+        Glow(g, hero.X * 0.55f, client.Height * 1.05f, client.Height * 0.6f, Draw.Alpha(t.Accent2, 10));
+
+        if (hero.Width <= 0 || hero.Height <= 0) return bmp;
+        using var sky = PaintHeroSky();
+        // Painted through a rounded path so the corners are anti-aliased (a clip region wouldn't be).
+        using var brush = new TextureBrush(sky, WrapMode.Clamp);
+        brush.TranslateTransform(hero.X, hero.Y);
+        using var path = Draw.Round(hero, heroRadius);
+        g.FillPath(brush, path);
+        using var edge = new LinearGradientBrush(new RectangleF(hero.X, hero.Y - 1, hero.Width, hero.Height + 2), Color.FromArgb(34, 255, 255, 255), Color.FromArgb(6, 255, 255, 255), 90f);
+        using var pen = new Pen(edge, 1f);
+        g.DrawPath(pen, path);
+        return bmp;
+    }
+
+    /// The night sky inside the hero panel, in the panel's own coordinates.
+    Bitmap PaintHeroSky()
+    {
+        var bmp = new Bitmap(hero.Width, hero.Height, PixelFormat.Format32bppPArgb);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        var all = new Rectangle(Point.Empty, hero.Size);
         using (var sky = new LinearGradientBrush(all, t.BgTop, t.BgBottom, 90f)) g.FillRectangle(sky, all);
 
         var pal = Palette;
         float k = Intensity;
+        float cx = c.X - hero.X, cy = c.Y - hero.Y;
         // Nebula: a big glow behind the vortex plus two faint off-center clouds.
-        Glow(g, c.X, c.Y, rArms * 1.35f, Draw.Alpha(pal.Glow, (int)(78 * k)));
-        Glow(g, c.X, c.Y, rOrb * 1.9f, Draw.Alpha(pal.Glow, (int)(60 * k)));
-        Glow(g, client.Width * 0.92f, client.Height * 0.06f, rArms * 0.9f, Draw.Alpha(t.Accent3, 34));
-        Glow(g, client.Width * 0.05f, client.Height * 0.55f, rArms * 0.8f, Draw.Alpha(t.Accent2, 18));
+        Glow(g, cx, cy, rArms * 1.35f, Draw.Alpha(pal.Glow, (int)(78 * k)));
+        Glow(g, cx, cy, rOrb * 1.9f, Draw.Alpha(pal.Glow, (int)(60 * k)));
+        Glow(g, hero.Width * 0.95f, hero.Height * 0.04f, rArms * 0.9f, Draw.Alpha(t.Accent3, 34));
+        Glow(g, hero.Width * 0.02f, hero.Height * 0.6f, rArms * 0.8f, Draw.Alpha(t.Accent2, 18));
 
         // Stars (same sky every time: fixed seed).
         var r = new Random(42);
-        for (int i = 0; i < 90; i++)
+        for (int i = 0; i < 80; i++)
         {
-            float x = (float)r.NextDouble() * client.Width, y = (float)r.NextDouble() * client.Height;
+            float x = (float)r.NextDouble() * hero.Width, y = (float)r.NextDouble() * hero.Height;
             float d = (0.6f + (float)r.NextDouble() * 1.1f) * s;
             int a = 25 + r.Next(110);
             using var b = new SolidBrush(Color.FromArgb(a, r.Next(2) == 0 ? Color.White : Color.FromArgb(200, 190, 255)));
